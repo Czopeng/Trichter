@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trichter Global Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root { --main-color: #00ff88; --bg: #111; --box-bg: #222; }
+  body { font-family: Arial, sans-serif; background: var(--bg); color: white; text-align: center; margin: 0; padding: 0; }
+  h1 { margin-top: 30px; color: var(--main-color); text-transform: uppercase; letter-spacing: 2px; }
+  
+  /* Tabs System */
+  .tabs { display: flex; justify-content: center; margin-top: 20px; border-bottom: 2px solid #333; }
+  .tab-btn { background: none; border: none; color: #888; padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+  .tab-btn:hover { color: white; }
+  .tab-btn.active { color: var(--main-color); border-bottom: 3px solid var(--main-color); }
+  
+  /* Content Areas */
+  .tab-content { display: none; padding: 20px; max-width: 800px; margin: 0 auto; }
+  .tab-content.active { display: block; }
+  
+  /* Leaderboard Table */
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; background: var(--box-bg); border-radius: 10px; overflow: hidden; }
+  th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
+  th { background: #1a1a1a; color: #aaa; }
+  tr:nth-child(1) { color: gold; font-weight: bold; font-size: 1.2em; } 
+  tr:nth-child(2) { color: silver; font-weight: bold; font-size: 1.1em; } 
+  tr:nth-child(3) { color: #cd7f32; font-weight: bold; } 
+  
+  /* Stats Filter */
+  .filter-box { background: var(--box-bg); padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+  select { padding: 10px; font-size: 18px; border-radius: 5px; border: 1px solid #444; background: #333; color: white; margin-left: 10px; }
+  
+  /* Chart Container */
+  .chart-container { background: var(--box-bg); padding: 20px; border-radius: 10px; position: relative; height: 400px; width: 100%; }
+</style>
+</head>
+<body>
+
+<h1>Trichter Hall of Fame</h1>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('leaderboard', this)">Top Zeiten</button>
+  <button class="tab-btn" onclick="switchTab('stats', this)">Spieler Analyse</button>
+</div>
+
+<div id="leaderboard" class="tab-content active">
+  <table id="leaderboardTable">
+    <tr><th>Platz</th><th>Name</th><th>Zeit (s)</th></tr>
+    </table>
+</div>
+
+<div id="stats" class="tab-content">
+  <div class="filter-box">
+    <label for="playerSelect" style="font-size: 18px; font-weight: bold;">Spieler auswählen:</label>
+    <select id="playerSelect" onchange="loadPlayerStats()">
+      <option value="">-- Wähle einen Namen --</option>
+    </select>
+  </div>
+  
+  <div class="chart-container">
+    <canvas id="playerChart"></canvas>
+  </div>
+</div>
+
+<script>
+// ===== Supabase Config =====
+const supabaseUrl = "https://yslvyqtweolxxmhwvcel.supabase.co/rest/v1/trichter_times";
+const supabaseKey = "sb_publishable_QaxGMezmwqEc1zKrfV9CKQ_9GFsidns";
+
+let myChart = null; // Globale Chart-Variable
+
+// ===== Tab Logik =====
+function switchTab(tabId, btn) {
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  btn.classList.add('active');
+  
+  if (tabId === 'stats') {
+    loadPlayerDropdown();
+  } else {
+    loadLeaderboard();
+  }
+}
+
+// ===== Leaderboard laden =====
+async function loadLeaderboard() {
+  try {
+    const response = await fetch(supabaseUrl + "?select=player_name,time_s&order=time_s.asc&limit=50", {
+      headers: { "apikey": supabaseKey, "Authorization": "Bearer " + supabaseKey }
+    });
+    const data = await response.json();
+    
+    let html = "<tr><th>Platz</th><th>Name</th><th>Zeit (s)</th></tr>";
+    data.forEach((entry, index) => {
+      html += `<tr><td>${index + 1}</td><td>${entry.player_name}</td><td>${entry.time_s.toFixed(3)}</td></tr>`;
+    });
+    document.getElementById("leaderboardTable").innerHTML = html;
+  } catch (err) {
+    console.error("Fehler beim Laden des Leaderboards", err);
+  }
+}
+
+// ===== Dropdown mit Namen füllen =====
+async function loadPlayerDropdown() {
+  try {
+    // Holt alle Namen, um die einzigartigen herauszufiltern
+    const response = await fetch(supabaseUrl + "?select=player_name", {
+      headers: { "apikey": supabaseKey, "Authorization": "Bearer " + supabaseKey }
+    });
+    const data = await response.json();
+    
+    // JS Set nutzt man, um Duplikate zu entfernen
+    const uniquePlayers = [...new Set(data.map(item => item.player_name))].sort();
+    
+    const select = document.getElementById('playerSelect');
+    // Aktuelle Auswahl sichern
+    const currentSelection = select.value;
+    
+    select.innerHTML = '<option value="">-- Wähle einen Namen --</option>';
+    uniquePlayers.forEach(player => {
+      select.innerHTML += `<option value="${player}">${player}</option>`;
+    });
+    
+    if (currentSelection && uniquePlayers.includes(currentSelection)) {
+      select.value = currentSelection;
+    }
+  } catch (err) {}
+}
+
+// ===== Spieler-Daten laden & Graph zeichnen =====
+async function loadPlayerStats() {
+  const playerName = document.getElementById('playerSelect').value;
+  if (!playerName) {
+    if (myChart) myChart.destroy();
+    return;
+  }
+
+  try {
+    const response = await fetch(supabaseUrl + `?select=time_s,created_at&player_name=eq.${encodeURIComponent(playerName)}&order=created_at.asc`, {
+      headers: { "apikey": supabaseKey, "Authorization": "Bearer " + supabaseKey }
+    });
+    const data = await response.json();
+    
+    // Daten für Chart.js aufbereiten
+    const labels = data.map(entry => {
+      const date = new Date(entry.created_at);
+      return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    });
+    const timeData = data.map(entry => entry.time_s);
+
+    drawChart(playerName, labels, timeData);
+  } catch (err) {
+    console.error("Fehler beim Laden der Spielerdaten", err);
+  }
+}
+
+// ===== Chart.js Logik =====
+function drawChart(playerName, labels, data) {
+  const ctx = document.getElementById('playerChart').getContext('2d');
+  
+  // Wenn schon ein Graph existiert, zerstören, damit der neue Platz hat
+  if (myChart) {
+    myChart.destroy();
+  }
+
+  myChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: `Performance (Sekunden) - ${playerName}`,
+        data: data,
+        borderColor: '#00ff88',
+        backgroundColor: 'rgba(0, 255, 136, 0.2)',
+        borderWidth: 2,
+        pointRadius: 5,
+        pointBackgroundColor: '#fff',
+        tension: 0.3 // Macht die Linie schön geschwungen
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: false,
+          grid: { color: '#333' },
+          ticks: { color: '#aaa' }
+        },
+        x: {
+          grid: { color: '#333' },
+          ticks: { color: '#aaa' }
+        }
+      },
+      plugins: {
+        legend: { labels: { color: 'white' } }
+      }
+    }
+  });
+}
+
+// Beim Start das Leaderboard laden
+loadLeaderboard();
+// Alle 10 Sekunden das Leaderboard refreshen, falls neue Zeiten vom ESP32 reinkommen
+setInterval(() => {
+  if (document.getElementById('leaderboard').classList.contains('active')) {
+    loadLeaderboard();
+  }
+}, 10000);
+
+</script>
+</body>
+</html>
