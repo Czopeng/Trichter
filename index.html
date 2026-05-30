@@ -16,8 +16,8 @@
   h2 { margin-top: 0; color: #aaa; font-weight: normal; font-size: 20px; letter-spacing: 1px; }
   
   /* Tabs System */
-  .tabs { display: flex; justify-content: center; margin-top: 30px; border-bottom: 2px solid #333; }
-  .tab-btn { background: none; border: none; color: #888; padding: 15px 30px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+  .tabs { display: flex; justify-content: center; margin-top: 30px; border-bottom: 2px solid #333; flex-wrap: wrap; }
+  .tab-btn { background: none; border: none; color: #888; padding: 15px 25px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.3s; }
   .tab-btn:hover { color: white; }
   .tab-btn.active { color: var(--main-color); border-bottom: 3px solid var(--main-color); }
   
@@ -53,14 +53,21 @@
 <h2>Campus Festival 2026</h2>
 
 <div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('leaderboard', this)">Top Zeiten</button>
+  <button class="tab-btn active" onclick="switchTab('leaderboard', this)">Hall of Fame (Heute)</button>
+  <button class="tab-btn" onclick="switchTab('archiv', this)">Archiv</button>
   <button class="tab-btn" onclick="switchTab('stats', this)">Spieler Analyse</button>
 </div>
 
 <div id="leaderboard" class="tab-content active">
   <table id="leaderboardTable">
     <tr><th>Platz</th><th>Name</th><th>Zeit (s)</th><th>Datum & Uhrzeit</th></tr>
-    </table>
+  </table>
+</div>
+
+<div id="archiv" class="tab-content">
+  <table id="archivTable">
+    <tr><th>Platz</th><th>Name</th><th>Zeit (s)</th><th>Datum & Uhrzeit</th></tr>
+  </table>
 </div>
 
 <div id="stats" class="tab-content">
@@ -71,7 +78,7 @@
     </select>
     
     <div class="chip-container" id="chipContainer">
-      </div>
+    </div>
   </div>
   
   <div class="chart-container">
@@ -83,6 +90,9 @@
 // ===== Supabase Config =====
 const supabaseUrl = "https://yslvyqtweolxxmhwvcel.supabase.co/rest/v1/trichter_times";
 const supabaseKey = "sb_publishable_QaxGMezmwqEc1zKrfV9CKQ_9GFsidns";
+
+// Stichtag: 30.05.2026, 00:00 Uhr MESZ (UTC-Zeit für Supabase: 29.05.2026, 22:00 Uhr)
+const cutoffDate = "2026-05-29T22:00:00Z";
 
 let myChart = null; 
 let selectedPlayers = [];
@@ -98,8 +108,10 @@ function switchTab(tabId, btn) {
   
   if (tabId === 'stats') {
     loadPlayerDropdown();
+  } else if (tabId === 'archiv') {
+    loadTableData('archivTable', true);
   } else {
-    loadLeaderboard();
+    loadTableData('leaderboardTable', false);
   }
 }
 
@@ -112,10 +124,13 @@ function formatDateTime(isoString) {
   return `${dateStr}, ${timeStr} Uhr`;
 }
 
-// ===== Leaderboard laden =====
-async function loadLeaderboard() {
+// ===== Tabellen laden (Dynamisch für Hall of Fame oder Archiv) =====
+async function loadTableData(tableId, isArchiv) {
   try {
-    const response = await fetch(supabaseUrl + "?select=player_name,time_s,created_at&order=time_s.asc&limit=50", {
+    // Supabase Filter: gte = größer/gleich (Heute), lt = kleiner als (Archiv)
+    const dateFilter = isArchiv ? `&created_at=lt.${cutoffDate}` : `&created_at=gte.${cutoffDate}`;
+    
+    const response = await fetch(supabaseUrl + "?select=player_name,time_s,created_at&order=time_s.asc&limit=50" + dateFilter, {
       headers: { "apikey": supabaseKey, "Authorization": "Bearer " + supabaseKey }
     });
     const data = await response.json();
@@ -129,9 +144,9 @@ async function loadLeaderboard() {
         <td class="date-col">${formatDateTime(entry.created_at)}</td>
       </tr>`;
     });
-    document.getElementById("leaderboardTable").innerHTML = html;
+    document.getElementById(tableId).innerHTML = html;
   } catch (err) {
-    console.error("Fehler beim Laden des Leaderboards", err);
+    console.error("Fehler beim Laden der Tabelle", err);
   }
 }
 
@@ -285,12 +300,15 @@ function drawChart(datasets) {
   });
 }
 
-// Beim Start das Leaderboard laden
-loadLeaderboard();
+// Beim Start die aktuelle Hall of Fame laden
+loadTableData('leaderboardTable', false);
+
 // Alle 10 Sekunden refreshen
 setInterval(() => {
   if (document.getElementById('leaderboard').classList.contains('active')) {
-    loadLeaderboard();
+    loadTableData('leaderboardTable', false);
+  } else if (document.getElementById('archiv').classList.contains('active')) {
+    loadTableData('archivTable', true);
   }
 }, 10000);
 
